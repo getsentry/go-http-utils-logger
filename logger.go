@@ -91,13 +91,13 @@ func (rl *responseLogger) Flush() {
 	}
 }
 
-type loggerHanlder struct {
+type loggerHandler struct {
 	h          http.Handler
 	formatType Type
 	writer     io.Writer
 }
 
-func (rh loggerHanlder) ServeHTTP(res http.ResponseWriter, req *http.Request) {
+func (rh loggerHandler) ServeHTTP(res http.ResponseWriter, req *http.Request) {
 	rl := &responseLogger{rw: res, start: time.Now()}
 
 	rh.h.ServeHTTP(rl, req)
@@ -105,7 +105,7 @@ func (rh loggerHanlder) ServeHTTP(res http.ResponseWriter, req *http.Request) {
 	rh.write(rl, req)
 }
 
-func (rh loggerHanlder) write(rl *responseLogger, req *http.Request) {
+func (rh loggerHandler) write(rl *responseLogger, req *http.Request) {
 	username := "-"
 
 	if req.URL.User != nil {
@@ -181,7 +181,7 @@ func parseResponseTime(start time.Time) string {
 // DefaultHandler returns a http.Handler that wraps h by using
 // Apache combined log output and print to os.Stdout
 func DefaultHandler(h http.Handler) http.Handler {
-	return loggerHanlder{
+	return loggerHandler{
 		h:          h,
 		formatType: CombineLoggerType,
 		writer:     os.Stdout,
@@ -191,7 +191,7 @@ func DefaultHandler(h http.Handler) http.Handler {
 // Handler returns a http.Hanlder that wraps h by using t type log output
 // and print to writer
 func Handler(h http.Handler, writer io.Writer, t Type) http.Handler {
-	return loggerHanlder{
+	return loggerHandler{
 		h:          h,
 		formatType: t,
 		writer:     writer,
