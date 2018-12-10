@@ -3,6 +3,7 @@ package logger
 import (
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -95,6 +96,7 @@ type loggerHandler struct {
 	h          http.Handler
 	formatType Type
 	writer     io.Writer
+	logFn      func(io.Writer, *responseLogger, *http.Request)
 }
 
 func (rh loggerHandler) ServeHTTP(res http.ResponseWriter, req *http.Request) {
@@ -102,10 +104,10 @@ func (rh loggerHandler) ServeHTTP(res http.ResponseWriter, req *http.Request) {
 
 	rh.h.ServeHTTP(rl, req)
 
-	rh.write(rl, req)
+	rh.logFn(rh.writer, rl, req)
 }
 
-func (rh loggerHandler) write(rl *responseLogger, req *http.Request) {
+func extractUsername(req *http.Request) string {
 	username := "-"
 
 	if req.URL.User != nil {
@@ -114,64 +116,12 @@ func (rh loggerHandler) write(rl *responseLogger, req *http.Request) {
 		}
 	}
 
-	switch rh.formatType {
-	case CombineLoggerType:
-		fmt.Fprintln(rh.writer, strings.Join([]string{
-			req.RemoteAddr,
-			"-",
-			username,
-			"[" + rl.start.Format(timeFormat) + "]",
-			`"` + req.Method,
-			req.RequestURI,
-			req.Proto + `"`,
-			strconv.Itoa(rl.status),
-			strconv.Itoa(rl.size),
-			`"` + req.Referer() + `"`,
-			`"` + req.UserAgent() + `"`,
-		}, " "))
-	case CommonLoggerType:
-		fmt.Fprintln(rh.writer, strings.Join([]string{
-			req.RemoteAddr,
-			"-",
-			username,
-			"[" + rl.start.Format(timeFormat) + "]",
-			`"` + req.Method,
-			req.RequestURI,
-			req.Proto + `"`,
-			strconv.Itoa(rl.status),
-			strconv.Itoa(rl.size),
-		}, " "))
-	case DevLoggerType:
-		fmt.Fprintln(rh.writer, strings.Join([]string{
-			req.Method,
-			req.RequestURI,
-			strconv.Itoa(rl.status),
-			parseResponseTime(rl.start),
-			"-",
-			strconv.Itoa(rl.size),
-		}, " "))
-	case ShortLoggerType:
-		fmt.Fprintln(rh.writer, strings.Join([]string{
-			req.RemoteAddr,
-			username,
-			req.Method,
-			req.RequestURI,
-			req.Proto,
-			strconv.Itoa(rl.status),
-			strconv.Itoa(rl.size),
-			"-",
-			parseResponseTime(rl.start),
-		}, " "))
-	case TinyLoggerType:
-		fmt.Fprintln(rh.writer, strings.Join([]string{
-			req.Method,
-			req.RequestURI,
-			strconv.Itoa(rl.status),
-			strconv.Itoa(rl.size),
-			"-",
-			parseResponseTime(rl.start),
-		}, " "))
-	}
+	return username
+}
+
+func extractRemoteIP(req *http.Request) string {
+	host, _, _ := net.SplitHostPort(req.RemoteAddr)
+	return host
 }
 
 func parseResponseTime(start time.Time) string {
@@ -181,19 +131,87 @@ func parseResponseTime(start time.Time) string {
 // DefaultHandler returns a http.Handler that wraps h by using
 // Apache combined log output and print to os.Stdout
 func DefaultHandler(h http.Handler) http.Handler {
-	return loggerHandler{
-		h:          h,
-		formatType: CombineLoggerType,
-		writer:     os.Stdout,
-	}
+	return Handler(h, os.Stdout, CombineLoggerType)
 }
 
 // Handler returns a http.Hanlder that wraps h by using t type log output
 // and print to writer
 func Handler(h http.Handler, writer io.Writer, t Type) http.Handler {
 	return loggerHandler{
-		h:          h,
-		formatType: t,
-		writer:     writer,
+		h:      h,
+		writer: writer,
+		logFn:  logFnForType(t),
 	}
+}
+
+func logFnForType(t Type) func(io.Writer, *responseLogger, *http.Request) {
+	switch t {
+	case CombineLoggerType:
+		return func(w io.Writer, rl *responseLogger, req *http.Request) {
+			fmt.Fprintln(w, strings.Join([]string{
+				extractRemoteIP(req),
+				"-",
+				extractUsername(req),
+				"[" + rl.start.Format(timeFormat) + "]",
+				`"` + req.Method,
+				req.RequestURI,
+				req.Proto + `"`,
+				strconv.Itoa(rl.status),
+				strconv.Itoa(rl.size),
+				`"` + req.Referer() + `"`,
+				`"` + req.UserAgent() + `"`,
+			}, " "))
+		}
+	case CommonLoggerType:
+		return func(w io.Writer, rl *responseLogger, req *http.Request) {
+			fmt.Fprintln(w, strings.Join([]string{
+				extractRemoteIP(req),
+				"-",
+				extractUsername(req),
+				"[" + rl.start.Format(timeFormat) + "]",
+				`"` + req.Method,
+				req.RequestURI,
+				req.Proto + `"`,
+				strconv.Itoa(rl.status),
+				strconv.Itoa(rl.size),
+			}, " "))
+		}
+	case DevLoggerType:
+		return func(w io.Writer, rl *responseLogger, req *http.Request) {
+			fmt.Fprintln(w, strings.Join([]string{
+				req.Method,
+				req.RequestURI,
+				strconv.Itoa(rl.status),
+				parseResponseTime(rl.start),
+				"-",
+				strconv.Itoa(rl.size),
+			}, " "))
+		}
+	case ShortLoggerType:
+		return func(w io.Writer, rl *responseLogger, req *http.Request) {
+			fmt.Fprintln(w, strings.Join([]string{
+				extractRemoteIP(req),
+				extractUsername(req),
+				req.Method,
+				req.RequestURI,
+				req.Proto,
+				strconv.Itoa(rl.status),
+				strconv.Itoa(rl.size),
+				"-",
+				parseResponseTime(rl.start),
+			}, " "))
+		}
+	case TinyLoggerType:
+		return func(w io.Writer, rl *responseLogger, req *http.Request) {
+			fmt.Fprintln(w, strings.Join([]string{
+				req.Method,
+				req.RequestURI,
+				strconv.Itoa(rl.status),
+				strconv.Itoa(rl.size),
+				"-",
+				parseResponseTime(rl.start),
+			}, " "))
+		}
+	}
+	panic("Should never get here.")
 }
