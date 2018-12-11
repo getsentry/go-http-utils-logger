@@ -116,9 +116,9 @@ func (rh loggerHandler) ServeHTTP(res http.ResponseWriter, req *http.Request) {
 		tags := []string{
 			"status:" + strconv.Itoa(rl.status),
 			"method:" + req.Method,
+			"cache_status:" + extractCacheStatus(res),
 		}
 
-		rh.stats.Incr("http.response", tags, 1)
 		rh.stats.Gauge("http.size", float64(rl.size), tags, 1)
 		rh.stats.Timing("http.response", time.Now().Sub(rl.start), tags, 1)
 	}
@@ -139,6 +139,14 @@ func extractUsername(req *http.Request) string {
 func extractRemoteIP(req *http.Request) string {
 	host, _, _ := net.SplitHostPort(req.RemoteAddr)
 	return host
+}
+
+func extractCacheStatus(res http.ResponseWriter) string {
+	status := res.Header().Get("X-Cache-Status")
+	if status == "" {
+		return "unknown"
+	}
+	return status
 }
 
 func parseResponseTime(start time.Time) string {
