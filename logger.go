@@ -54,6 +54,9 @@ const (
 	// :method :url :status :res[content-length] - :response-time ms
 	TinyLoggerType
 
+	// Disable logging
+	NoneLoggerType
+
 	timeFormat = "02/Jan/2006:15:04:05 -0700"
 )
 
@@ -227,6 +230,8 @@ func logFnForType(t Type) func(io.Writer, *responseLogger, *http.Request) {
 				parseResponseTime(rl.start),
 			}, " "))
 		}
+	case NoneLoggerType:
+		return func(w io.Writer, rl *responseLogger, req *http.Request) {}
 	}
 	panic("Should never get here.")
 }
