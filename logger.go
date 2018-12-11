@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/DataDog/datadog-go/statsd"
 )
 
 // Type represents logger's type
@@ -97,6 +99,7 @@ type loggerHandler struct {
 	formatType Type
 	writer     io.Writer
 	logFn      func(io.Writer, *responseLogger, *http.Request)
+	stats      *statsd.Client
 }
 
 func (rh loggerHandler) ServeHTTP(res http.ResponseWriter, req *http.Request) {
@@ -105,6 +108,17 @@ func (rh loggerHandler) ServeHTTP(res http.ResponseWriter, req *http.Request) {
 	rh.h.ServeHTTP(rl, req)
 
 	rh.logFn(rh.writer, rl, req)
+
+	if rh.stats != nil {
+		tags := []string{
+			"status:" + strconv.Itoa(rl.status),
+			"method:" + req.Method,
+		}
+
+		rh.stats.Incr("http.response", tags, 1)
+		rh.stats.Gauge("http.size", float64(rl.size), tags, 1)
+		rh.stats.Timing("http.response", time.Now().Sub(rl.start), tags, 1)
+	}
 }
 
 func extractUsername(req *http.Request) string {
@@ -131,16 +145,17 @@ func parseResponseTime(start time.Time) string {
 // DefaultHandler returns a http.Handler that wraps h by using
 // Apache combined log output and print to os.Stdout
 func DefaultHandler(h http.Handler) http.Handler {
-	return Handler(h, os.Stdout, CombineLoggerType)
+	return Handler(h, os.Stdout, CombineLoggerType, nil)
 }
 
 // Handler returns a http.Hanlder that wraps h by using t type log output
 // and print to writer
-func Handler(h http.Handler, writer io.Writer, t Type) http.Handler {
+func Handler(h http.Handler, writer io.Writer, t Type, stats *statsd.Client) http.Handler {
 	return loggerHandler{
 		h:      h,
 		writer: writer,
 		logFn:  logFnForType(t),
+		stats:  stats,
 	}
 }
 
